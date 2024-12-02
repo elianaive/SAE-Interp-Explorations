@@ -1,0 +1,36 @@
+# Model configuration
+model:
+  name: "roneneldan/TinyStories-33M"
+  layer_num: 8  # Which layer to extract from
+  hidden_size: 768  # Hidden size of the model
+
+# Autoencoder configuration
+autoencoder:
+  latent_dim: 8192  # Number of latent dimensions
+  k: 32  # Number of active latents
+  tied_weights: true
+  multi_k: false  # Whether to use Multi-TopK
+
+# Training configuration
+training:
+  num_epochs: 100
+  batch_size: 512
+  learning_rate: 2e-4
+  adam_eps: 6.25e-10
+  k_aux: 512  # Number of auxiliary latents
+  aux_scale: 0.03125  # Scale for auxiliary loss (1/32)
+  save_every: 10  # Save checkpoint every N epochs
+  checkpoint_dir: "checkpoints"
+
+# Logging configuration
+use_wandb: true
+wandb:
+  project: "sparse_autoencoder"
+  run_name: "tinystories_initial"
+
+# Data configuration
+data:
+  sequence_length: 64
+  batch_size: 32
+  max_samples: 1000000  # Set to null to use full dataset
+  activation_path: "data/activations/tinystories_layer8.h5"
