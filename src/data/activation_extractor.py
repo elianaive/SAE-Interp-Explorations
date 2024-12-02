@@ -121,16 +121,16 @@ class ActivationExtractor:
 class ActivationDataset(Dataset):
     def __init__(self, hdf5_file_path: str):
         self.hdf5_file_path = hdf5_file_path
-        self.h5f = h5py.File(self.hdf5_file_path, 'r')
-        self.activations = self.h5f['activations']
-        
+        # Don't keep the file handle open
+        with h5py.File(self.hdf5_file_path, 'r') as f:
+            self.length = len(f['activations'])
+            self.shape = f['activations'].shape[1:]  # Store shape for later use
+    
     def __len__(self) -> int:
-        return self.activations.shape[0]
+        return self.length
     
     def __getitem__(self, idx: int) -> torch.Tensor:
-        activation = self.activations[idx]
-        return torch.from_numpy(activation)
-    
-    def __del__(self):
-        if hasattr(self, 'h5f') and self.h5f:
-            self.h5f.close()
+        # Open and close the file for each access
+        with h5py.File(self.hdf5_file_path, 'r') as f:
+            activation = f['activations'][idx]
+        return torch.from_numpy(activation.astype('float32'))

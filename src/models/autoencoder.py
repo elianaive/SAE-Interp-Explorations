@@ -134,7 +134,7 @@ class TopKSparseAutoencoder(nn.Module):
             with torch.no_grad():
                 refined_latents.grad *= sparsity_pattern
                 optimizer.step()
-                # Ensure non-negative values (as we use ReLU in forward pass)
+                # Ensure non-negative values
                 refined_latents.clamp_(min=0)
                 # Reset gradient for non-active positions
                 refined_latents.data *= sparsity_pattern
