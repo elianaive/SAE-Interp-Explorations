@@ -35,13 +35,26 @@ class SparseAutoencoderTrainer:
             logging.info("WandB initialized")
             
     def compute_loss(
-        self,
-        x: torch.Tensor,
-        recon_x: torch.Tensor,
-        latents: torch.Tensor,
-        dead_latents: Optional[torch.Tensor] = None
-    ) -> tuple[torch.Tensor, dict]:
-        """Compute main reconstruction loss and auxiliary loss."""
+    self,
+    x: torch.Tensor,
+    recon_x: torch.Tensor,
+    latents: torch.Tensor,
+    dead_latents: Optional[torch.Tensor] = None
+) -> tuple[torch.Tensor, dict]:
+        """
+        Compute main reconstruction loss and auxiliary loss for dead latent recovery.
+        
+        Args:
+            x: Original input tensor
+            recon_x: Reconstructed input tensor
+            latents: Latent activations
+            dead_latents: Boolean mask indicating dead latents
+            
+        Returns:
+            tuple of:
+                - Total loss (main + scaled auxiliary)
+                - Dictionary of metrics
+        """
         # Main reconstruction loss
         main_loss = F.mse_loss(recon_x, x)
         metrics = {"main_loss": main_loss.item()}
@@ -49,6 +62,9 @@ class SparseAutoencoderTrainer:
         # Auxiliary loss for dead latents
         aux_loss = torch.tensor(0.0, device=self.device)
         if dead_latents is not None and dead_latents.any():
+            # Get current reconstruction error
+            error = x - recon_x
+            
             # Reshape latents if necessary
             batch_size = latents.size(0)
             seq_len = latents.size(1) if len(latents.shape) == 3 else 1
@@ -56,22 +72,61 @@ class SparseAutoencoderTrainer:
             
             # Reshape to [batch * seq, latent_dim]
             flat_latents = latents.view(-1, latent_dim)
+            flat_error = error.view(-1, error.size(-1))
             
             # Get activations for dead latents
             dead_latent_activations = flat_latents[:, dead_latents]
             
             if dead_latent_activations.size(1) > 0:
+                # Take top k_aux activations among dead latents
                 k = min(self.k_aux, dead_latent_activations.size(1))
-                top_aux = torch.topk(dead_latent_activations, k, dim=1)[0]
-                aux_loss = F.mse_loss(top_aux, torch.zeros_like(top_aux))
+                values, indices = torch.topk(dead_latent_activations, k, dim=1)
+                
+                # Create sparse tensor of top-k activations
+                sparse_dead_latents = torch.zeros_like(dead_latent_activations)
+                sparse_dead_latents.scatter_(1, indices, values)
+                
+                # Reconstruct error using dead latents
+                if self.model.tied_weights:
+                    dead_weights = self.model.encoder.weight[dead_latents].t()
+                    dead_recon = F.linear(sparse_dead_latents, dead_weights)
+                else:
+                    dead_weights = self.model.decoder.weight.t()[dead_latents]
+                    dead_recon = F.linear(sparse_dead_latents, dead_weights)
+                
+                # Compute auxiliary loss as reconstruction of error
+                aux_loss = F.mse_loss(dead_recon, flat_error)
                 metrics["aux_loss"] = aux_loss.item()
 
-        # Compute sparsity metrics
+        # Compute detailed latent statistics
+        total_latents = latents.size(-1)
+
+        # Active latents (both percentage and count)
+        active_mask = (latents != 0)
+        # If latents is [batch, seq, latent_dim], we need to collapse batch and seq dimensions first
+        if len(active_mask.shape) == 3:
+            active_mask = active_mask.view(-1, active_mask.size(-1))  # Collapse batch and seq dims
+        unique_active = active_mask.any(dim=0).sum().item()  # Count unique active across batch
+
+        # Sanity check
+        assert unique_active <= total_latents, f"Found {unique_active} active latents but only {total_latents} total latents!"
+
+        active_percent = (unique_active / total_latents * 100)
+
+        
+        dead_count = dead_latents.sum().item() if dead_latents is not None else 0
+        dead_percent = (dead_count / total_latents * 100) if dead_latents is not None else 0
+        
+        # Update metrics
         metrics.update({
-            "active_latents": (latents != 0).float().mean().item(),
-            "dead_latents": dead_latents.sum().item() if dead_latents is not None else 0
+            "active_latents_pct": active_percent,
+            "active_latents": unique_active,
+            "dead_latents_pct": dead_percent,
+            "dead_latents": dead_count,
+            "total_latents": total_latents
         })
 
+        # Combine losses
         total_loss = main_loss + self.aux_scale * aux_loss
         metrics["total_loss"] = total_loss.item()
 
@@ -83,34 +138,46 @@ class SparseAutoencoderTrainer:
             x = batch['input_ids']
         else:
             x = batch
-            
+
         x = x.to(self.device)
+        
+        #print(f"Input magnitude: {x.norm(dim=-1).mean():.3f}")
         self.optimizer.zero_grad()
         
-        # Get dead latents before forward pass
-        dead_latents = self.model.get_dead_latents()
-        #if dead_latents.any():
-            #print("Dead latent found")
-        
+        with torch.no_grad():
+            pre_act = self.model.encoder(x)
+            #print(f"Pre-activation magnitude: {pre_act.norm(dim=-1).mean():.3f}")
+            #print(f"Pre-activation max: {pre_act.max():.3f}")
+            #print(f"Number of latents > 0: {(pre_act > 0).float().sum(dim=-1).mean():.1f}")
+
         # Forward pass
         recon_x, latents = self.model(x)
         
+        #print(f"Number of unique active latents: {(latents.sum(dim=0) > 0).sum()}")
+        #print(f"Mean activation value: {latents[latents > 0].mean():.3f}")
+
+        # Update activation counts
+        self.model.update_activation_counts(latents)
+
+        # Get dead latents after updating counts
+        dead_latents = self.model.get_dead_latents()
+
         # Compute loss
         loss, metrics = self.compute_loss(x, recon_x, latents, dead_latents)
-        
+
         # Backward pass
         loss.backward()
         self.optimizer.step()
-        
+
         # Normalize decoder weights if using tied weights
         if self.model.tied_weights:
             with torch.no_grad():
                 self.model.encoder.weight.data = F.normalize(
                     self.model.encoder.weight.data, dim=1
                 )
-        
+
         return metrics
-    
+
     def train_epoch(
         self, 
         dataloader: DataLoader,

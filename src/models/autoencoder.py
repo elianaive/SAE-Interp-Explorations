@@ -42,32 +42,50 @@ class TopKSparseAutoencoder(nn.Module):
         self._init_weights(init_scale)
 
     def _init_weights(self, scale: float = 1.0):
-        """Initialize weights following paper's scheme."""
         with torch.no_grad():
             weights = torch.randn(self.latent_dim, self.input_dim)
             weights = F.normalize(weights, dim=1) * scale
             self.encoder.weight.data = weights
             
             if not self.tied_weights and self.decoder is not None:
-                self.decoder.weight.data = weights.t()
+                self.decoder.weight.data = weights.t() # Initialize decoder as transpose of encoder
 
+    # def top_k_activation(self, x: torch.Tensor, k: Optional[int] = None) -> torch.Tensor:
+    #     """Apply TopK activation function."""
+    #     if k is None:
+    #         k = self.k
+        
+    #     orig_shape = x.shape
+    #     if len(orig_shape) == 3:  # [batch, seq, latent]
+    #         x = x.view(-1, x.size(-1))
+            
+    #     topk_values, topk_indices = torch.topk(x, k, dim=1)
+    #     threshold = topk_values[:, -1].unsqueeze(1)
+    #     x = x * (x >= threshold)
+        
+    #     if len(orig_shape) == 3:
+    #         x = x.view(orig_shape)
+            
+    #     return x
+    
+    # New imp to deal with ties?
     def top_k_activation(self, x: torch.Tensor, k: Optional[int] = None) -> torch.Tensor:
         """Apply TopK activation function."""
         if k is None:
             k = self.k
-        
+
         orig_shape = x.shape
-        if len(orig_shape) == 3:  # [batch, seq, latent]
-            x = x.view(-1, x.size(-1))
-            
-        topk_values, topk_indices = torch.topk(x, k, dim=1)
-        threshold = topk_values[:, -1].unsqueeze(1)
-        x = x * (x >= threshold)
-        
         if len(orig_shape) == 3:
-            x = x.view(orig_shape)
-            
-        return x
+            x = x.view(-1, x.size(-1))
+
+        topk_values, topk_indices = torch.topk(x, k, dim=1)
+        x_new = torch.zeros_like(x)
+        x_new.scatter_(1, topk_indices, topk_values)
+
+        if len(orig_shape) == 3:
+            x_new = x_new.view(orig_shape)
+
+        return x_new
 
     def multi_top_k_activation(self, x: torch.Tensor) -> torch.Tensor:
         """Apply Multi-TopK activation as described in the paper."""

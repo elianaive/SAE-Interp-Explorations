@@ -6,26 +6,26 @@ model:
 # Data configuration
 data:
   name: "roneneldan/TinyStories"
-  train_size: 50000
-  sequence_length: 64
-  extraction_batch_size: 32
+  train_size: 10000
+  sequence_length: 256
+  extraction_batch_size: 128
   activation_cache_dir: "data/activations"
 
 # Autoencoder configuration
 autoencoder:
-  latent_dim: 1024
-  k: 8
+  latent_dim: 32768 #similar to GPT 2
+  k: 32
   init_scale: 1.0
   tied_weights: true
   multi_k: false
 
 # Training configuration
 training:
-  num_epochs: 20
-  batch_size: 10
+  num_epochs: 100
+  batch_size: 12
   learning_rate: 1e-4
   adam_eps: 6.25e-10
-  k_aux: 512
+  k_aux: 384 # Should be d_model/2 ish
   aux_scale: 0.03125  # 1/32
   num_workers: 4
   checkpoint_dir: "checkpoints"

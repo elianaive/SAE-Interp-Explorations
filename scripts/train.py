@@ -98,10 +98,18 @@ def main():
         model.config.pad_token_id = model.config.eos_token_id
     
     logger.info("Loading dataset...")
-    raw_dataset = load_dataset(
-        config['data']['name'],
-        split=f"train[:{config['data']['train_size']}]"
-    )
+    train_size = config['data']['train_size']
+
+    if train_size is None or train_size == -1 or train_size == "None":
+        raw_dataset = load_dataset(
+            config['data']['name'],
+            split="train"
+        )
+    else:
+        raw_dataset = load_dataset(
+            config['data']['name'],
+            split=f"train[:{train_size}]"
+        )
     dataset = TokenizedDataset(
         raw_dataset,
         tokenizer,
@@ -196,18 +204,18 @@ def main():
         else:
             early_stopping_counter += 1
             
-        torch.save(checkpoint, checkpoint_dir / f'checkpoint_{epoch:03d}.pt')
+        #torch.save(checkpoint, checkpoint_dir / f'checkpoint_{epoch:03d}.pt')
         
-        # Check early stopping
-        if early_stopping_counter >= config['training']['patience']:
-            logger.info(f"Early stopping triggered after {epoch} epochs")
-            break
+        # # Check early stopping
+        # if early_stopping_counter >= config['training']['patience']:
+        #     logger.info(f"Early stopping triggered after {epoch} epochs")
+        #     break
             
-        # Check dead latent threshold
-        if dead_latent_percentage > config['training']['max_dead_latent_ratio']:
-            logger.warning(f"Dead latent ratio {dead_latent_percentage:.2f}% exceeded threshold "
-                         f"{config['training']['max_dead_latent_ratio']}%")
-            break
+        # # Check dead latent threshold
+        # if dead_latent_percentage > config['training']['max_dead_latent_ratio']:
+        #     logger.warning(f"Dead latent ratio {dead_latent_percentage:.2f}% exceeded threshold "
+        #                  f"{config['training']['max_dead_latent_ratio']}%")
+        #     break
     
     # Clean up
     if hasattr(activation_dataset, 'h5f'):
