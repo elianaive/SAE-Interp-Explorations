@@ -24,7 +24,6 @@ class TopKSparseAutoencoder(nn.Module):
         self.multi_k = multi_k
         self.dead_threshold = dead_threshold
         
-        # Initialize encoder and bias
         self.encoder = nn.Linear(input_dim, latent_dim, bias=True)
         self.encoder_bias = self.encoder.bias
         
@@ -38,6 +37,8 @@ class TopKSparseAutoencoder(nn.Module):
         # Initialize activation tracking
         self.register_buffer('activation_counts', torch.zeros(latent_dim))
         self.register_buffer('tokens_seen', torch.tensor(0))
+        
+        self.register_buffer('last_nonzero', torch.zeros(latent_dim)) # Maybe?
         
         self._init_weights(init_scale)
 
@@ -92,6 +93,16 @@ class TopKSparseAutoencoder(nn.Module):
             if len(latents.shape) == 3:
                 num_tokens *= latents.size(1)
             self.tokens_seen += num_tokens
+    # def update_activation_counts(self, latents: torch.Tensor):
+    #     """Update tracking of neuron activations."""
+    #     with torch.no_grad():
+    #         # Reshape if needed to handle sequence dimension
+    #         if len(latents.shape) == 3:
+    #             latents = latents.view(-1, latents.size(-1))
+            
+    #         # Multiply by zero anywhere latents activated, then add 1
+    #         self.last_nonzero *= (latents == 0).all(dim=0).long()
+    #         self.last_nonzero += 1
 
     def get_dead_latents(self, threshold: Optional[int] = None) -> torch.Tensor:
         """Get mask of dead latents (not activated in threshold tokens)."""
@@ -102,6 +113,12 @@ class TopKSparseAutoencoder(nn.Module):
             return torch.zeros(self.latent_dim, dtype=torch.bool, device=self.activation_counts.device)
             
         return self.activation_counts < (self.tokens_seen / threshold)
+    # def get_dead_latents(self, threshold: Optional[int] = None) -> torch.Tensor:
+    #     """Get mask of dead latents (not activated in threshold tokens)."""
+    #     if threshold is None:
+    #         threshold = self.dead_threshold
+            
+    #     return self.last_nonzero >= threshold
 
     def refine_activations(self, x: torch.Tensor, latents: torch.Tensor, 
                           num_iterations: int = 100) -> torch.Tensor:
@@ -166,8 +183,14 @@ class TopKSparseAutoencoder(nn.Module):
             x = x.view(-1, x.size(-1))
             
         if self.norm_input:
-            x = x - self.pre_bias
-            x = F.normalize(x, dim=1)
+            # L2 norm
+            # x = x - self.pre_bias
+            # x = F.normalize(x, dim=1)
+            # Layer norm
+            mu = x.mean(dim=-1, keepdim=True)
+            x = x - mu  
+            std = x.std(dim=-1, keepdim=True)
+            x = x / (std + 1e-5)
             
         # Encode
         latents = self.encoder(x)

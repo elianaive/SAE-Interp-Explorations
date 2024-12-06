@@ -10,6 +10,12 @@ import os
 
 logger = logging.getLogger(__name__)
 
+def print_model_structure(model, indent=0):
+    """Recursively print model structure with indentation"""
+    for name, child in model.named_children():
+        print('  ' * indent + f'|- {name}: {type(child).__name__}')
+        print_model_structure(child, indent + 1)
+
 class ActivationExtractor:
     def __init__(
         self,
@@ -41,6 +47,7 @@ class ActivationExtractor:
         
         # Find the target layer based on model architecture
         if hasattr(self.model, 'transformer'):
+            print_model_structure(self.model.transformer)
             # For GPT-Neo style models, we want to capture the output of the MLP
             target_layer = self.model.transformer.h[self.layer_num].mlp
         elif hasattr(self.model, 'model'):
