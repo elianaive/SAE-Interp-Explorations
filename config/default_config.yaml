@@ -6,7 +6,7 @@ model:
 # Data configuration
 data:
   name: "roneneldan/TinyStories"
-  train_size: 100000
+  train_size: 1000000
   sequence_length: 64
   extraction_batch_size: 128
   activation_cache_dir: "data/activations"
@@ -15,15 +15,15 @@ data:
 autoencoder:
   latent_dim: 8192 #similar to GPT 2
   k: 32
-  init_scale: 2.0
+  init_scale: 0.177  # 1/sqrt(k) where k=32
   tied_weights: true
   multi_k: true
 
 # Training configuration
 training:
-  num_epochs: 100
-  batch_size: 12
-  learning_rate: 1e-4
+  num_epochs: 50
+  batch_size: 256
+  learning_rate: 4e-4
   adam_eps: 6.25e-10
   k_aux: 384 # Should be d_model/2 ish
   aux_scale: 0.03125  # 1/32

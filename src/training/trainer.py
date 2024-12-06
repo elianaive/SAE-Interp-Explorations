@@ -96,6 +96,7 @@ class SparseAutoencoderTrainer:
                 
                 # Compute auxiliary loss as reconstruction of error
                 aux_loss = F.mse_loss(dead_recon, flat_error)
+                #print(f"Aux loss: {aux_loss}")
                 metrics["aux_loss"] = aux_loss.item()
 
         # Compute detailed latent statistics
@@ -108,8 +109,7 @@ class SparseAutoencoderTrainer:
             active_mask = active_mask.view(-1, active_mask.size(-1))  # Collapse batch and seq dims
         unique_active = active_mask.any(dim=0).sum().item()  # Count unique active across batch
 
-        # Sanity check
-        assert unique_active <= total_latents, f"Found {unique_active} active latents but only {total_latents} total latents!"
+        assert unique_active <= total_latents, f"Found {unique_active} active latents but only {total_latents} total latents"
 
         active_percent = (unique_active / total_latents * 100)
 
