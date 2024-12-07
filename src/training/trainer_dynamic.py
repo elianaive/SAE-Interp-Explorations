@@ -229,6 +229,13 @@ class SparseAutoencoderTrainer:
                 'loss': f"{metrics['total_loss']:.4f}",
                 'dead': f"{metrics['dead_latents']}"
             })
+            
+            if self.use_wandb and batch_idx % 10 == 0:
+                current_tokens = tokens_processed + (batch_idx + 1) * self.tokens_per_batch
+                wandb.log({
+                    "tokens": current_tokens,
+                    **{f"batch/{k}": v for k, v in metrics.items()}
+            })
         
         pbar.close()
         

@@ -13,7 +13,7 @@ class TopKSparseAutoencoder(nn.Module):
         norm_input: bool = True,
         tied_weights: bool = True,
         multi_k: bool = False,  # Whether to use Multi-TopK
-        dead_threshold: int = 10_000_000,  # Tokens before considering a latent dead
+        dead_threshold: int = 10_000 #10_000_000,  # Tokens before considering a latent dead
     ):
         super().__init__()
         self.input_dim = input_dim
@@ -184,13 +184,13 @@ class TopKSparseAutoencoder(nn.Module):
             
         if self.norm_input:
             # L2 norm
-            # x = x - self.pre_bias
-            # x = F.normalize(x, dim=1)
+            x = x - self.pre_bias
+            x = F.normalize(x, dim=1)
             # Layer norm
-            mu = x.mean(dim=-1, keepdim=True)
-            x = x - mu  
-            std = x.std(dim=-1, keepdim=True)
-            x = x / (std + 1e-5)
+            # mu = x.mean(dim=-1, keepdim=True)
+            # x = x - mu  
+            # std = x.std(dim=-1, keepdim=True)
+            # x = x / (std + 1e-5)
             
         # Encode
         latents = self.encoder(x)

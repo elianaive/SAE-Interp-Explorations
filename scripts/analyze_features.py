@@ -22,9 +22,9 @@ logger = logging.getLogger(__name__)
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Analyze feature activations in a trained autoencoder")
-    parser.add_argument("--config", default='config/default_config.yaml', type=str, required=True, help="Path to training config YAML")
-    parser.add_argument("--checkpoint", default='checkpoints/20241202_175534/best_model.pt', type=str, required=True, help="Path to autoencoder checkpoint")
-    parser.add_argument("--output-dir", default='output/analysis/', type=str, required=True, help="Directory to save analysis results")
+    parser.add_argument("--config", default='config/default_config.yaml', type=str, required=False, help="Path to training config YAML")
+    parser.add_argument("--checkpoint", default='checkpoints/20241206_184724/best_model.pt', type=str, required=False, help="Path to autoencoder checkpoint")
+    parser.add_argument("--output-dir", default='output/analysis/', type=str, required=False, help="Directory to save analysis results")
     parser.add_argument("--n-samples", type=int, default=1000, help="Number of samples to analyze")
     parser.add_argument("--top-k", type=int, default=5, help="Number of top/bottom examples to keep per feature")
     parser.add_argument("--batch-size", type=int, default=32, help="Batch size for processing")

@@ -192,13 +192,13 @@ def main():
                 break
         
         # Optional dead latent check
-        if config.get('training', {}).get('max_dead_latent_ratio'):
-            if dead_latent_percentage > config['training']['max_dead_latent_ratio']:
-                logger.warning(
-                    f"Dead latent ratio {dead_latent_percentage:.2f}% exceeded threshold "
-                    f"{config['training']['max_dead_latent_ratio']}%"
-                )
-                break
+        # if config.get('training', {}).get('max_dead_latent_ratio'):
+        #     if dead_latent_percentage > config['training']['max_dead_latent_ratio']:
+        #         logger.warning(
+        #             f"Dead latent ratio {dead_latent_percentage:.2f}% exceeded threshold "
+        #             f"{config['training']['max_dead_latent_ratio']}%"
+        #         )
+        #         break
     
     if config['use_wandb']:
         wandb.finish()
