@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Dict
 
 class TopKSparseAutoencoder(nn.Module):
     def __init__(
@@ -39,6 +39,8 @@ class TopKSparseAutoencoder(nn.Module):
         self.register_buffer('tokens_seen', torch.tensor(0))
         
         self.register_buffer('last_nonzero', torch.zeros(latent_dim)) # Maybe?
+        self.register_buffer('last_activation', torch.zeros(latent_dim, dtype=torch.long))
+        self.register_buffer('current_step', torch.zeros(1, dtype=torch.long))
         
         self._init_weights(init_scale)
 
@@ -88,7 +90,12 @@ class TopKSparseAutoencoder(nn.Module):
                 active_latents = active_latents.sum(0)
             self.activation_counts += active_latents
             
-            # Update tokens seen (multiply batch size by sequence length if relevant)
+            # Update last activation time for active neurons
+            active_mask = active_latents > 0
+            self.last_activation[active_mask] = self.current_step.item()
+            self.current_step += 1
+            
+            # Update tokens seen
             num_tokens = latents.size(0)
             if len(latents.shape) == 3:
                 num_tokens *= latents.size(1)
@@ -113,6 +120,15 @@ class TopKSparseAutoencoder(nn.Module):
             return torch.zeros(self.latent_dim, dtype=torch.bool, device=self.activation_counts.device)
             
         return self.activation_counts < (self.tokens_seen / threshold)
+    
+    def get_activation_metrics(self) -> Dict[str, float]:
+        """Get metrics about latent activation patterns."""
+        steps_since_activation = self.current_step - self.last_activation
+        return {
+            "mean_steps_since_activation": steps_since_activation.float().mean().item(),
+            "max_steps_since_activation": steps_since_activation.max().item(),
+            "median_steps_since_activation": steps_since_activation.float().median().item()
+        }
     # def get_dead_latents(self, threshold: Optional[int] = None) -> torch.Tensor:
     #     """Get mask of dead latents (not activated in threshold tokens)."""
     #     if threshold is None:
@@ -184,13 +200,13 @@ class TopKSparseAutoencoder(nn.Module):
             
         if self.norm_input:
             # L2 norm
-            x = x - self.pre_bias
-            x = F.normalize(x, dim=1)
+            # x = x - self.pre_bias
+            # x = F.normalize(x, dim=1)
             # Layer norm
-            # mu = x.mean(dim=-1, keepdim=True)
-            # x = x - mu  
-            # std = x.std(dim=-1, keepdim=True)
-            # x = x / (std + 1e-5)
+            mu = x.mean(dim=-1, keepdim=True)
+            x = x - mu  
+            std = x.std(dim=-1, keepdim=True)
+            x = x / (std + 1e-5)
             
         # Encode
         latents = self.encoder(x)

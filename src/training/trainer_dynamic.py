@@ -70,6 +70,10 @@ class SparseAutoencoderTrainer:
         self.tokens_per_batch = batch_size * sequence_length
         self.steps_per_segment = tokens_per_segment // self.tokens_per_batch
         
+        self.mse_history = []
+        self.window_size = 100
+        self.tokens_processed = 0
+        
         if self.use_wandb:
             wandb_config = wandb_config or {}
             wandb_config.update({
@@ -84,6 +88,17 @@ class SparseAutoencoderTrainer:
                 config=wandb_config
             )
             logging.info("WandB initialized")
+        self.register_baseline_stats()
+            
+    def register_baseline_stats(self):
+        """Calculate baseline reconstruction error for normalization."""
+        with torch.no_grad():
+            batch = self.get_batch_fn(self.batch_size, self.sequence_length)
+            x = batch['input_ids'].to(self.device) if isinstance(batch, dict) else batch.to(self.device)
+            
+            self.activation_mean = x.mean(dim=0, keepdim=True)
+            
+            self.baseline_mse = F.mse_loss(x, self.activation_mean.expand_as(x)).item()
 
     def compute_loss(
         self,
@@ -99,38 +114,40 @@ class SparseAutoencoderTrainer:
         main_loss = F.mse_loss(recon_x, x)
         metrics = {"main_loss": main_loss.item()}
 
+        # Add normalized MSE and track convergence
+        normalized_mse = main_loss.item() / self.baseline_mse
+        metrics['normalized_mse'] = normalized_mse
+        
+        self.mse_history.append(normalized_mse)
+        if len(self.mse_history) > self.window_size:
+            self.mse_history.pop(0)
+            recent_mse = torch.tensor(self.mse_history)
+            relative_change = (recent_mse[1:] - recent_mse[:-1]).abs().mean() / recent_mse.mean()
+            metrics['relative_mse_change'] = relative_change.item()
+
         # Auxiliary loss for dead latents
         aux_loss = torch.tensor(0.0, device=self.device)
         if dead_latents is not None and dead_latents.any():
-            # Get current reconstruction error
             error = x - recon_x
             
-            # Reshape latents if necessary
             latent_dim = latents.size(-1)
             flat_latents = latents.view(-1, latent_dim)
             flat_error = error.view(-1, error.size(-1))
             
-            # Get activations for dead latents
             dead_latent_activations = flat_latents[:, dead_latents]
             
             if dead_latent_activations.size(1) > 0:
-                # Take top k_aux activations among dead latents
                 k = min(self.k_aux, dead_latent_activations.size(1))
                 values, indices = torch.topk(dead_latent_activations, k, dim=1)
                 
-                # Create sparse tensor of top-k activations
                 sparse_dead_latents = torch.zeros_like(dead_latent_activations)
                 sparse_dead_latents.scatter_(1, indices, values)
                 
-                # Reconstruct error using dead latents
                 if self.model.tied_weights:
                     dead_weights = self.model.encoder.weight[dead_latents].t()
-                    dead_recon = F.linear(sparse_dead_latents, dead_weights)
                 else:
                     dead_weights = self.model.decoder.weight.t()[dead_latents]
-                    dead_recon = F.linear(sparse_dead_latents, dead_weights)
-                
-                # Compute auxiliary loss
+                dead_recon = F.linear(sparse_dead_latents, dead_weights)
                 aux_loss = F.mse_loss(dead_recon, flat_error)
                 metrics["aux_loss"] = aux_loss.item()
 
@@ -145,7 +162,7 @@ class SparseAutoencoderTrainer:
         dead_count = dead_latents.sum().item() if dead_latents is not None else 0
         dead_percent = (dead_count / total_latents * 100) if dead_latents is not None else 0
         
-        # Update metrics
+        # Basic metrics
         metrics.update({
             "active_latents_pct": active_percent,
             "active_latents": unique_active,
@@ -153,6 +170,14 @@ class SparseAutoencoderTrainer:
             "dead_latents": dead_count,
             "total_latents": total_latents
         })
+
+        # Add activation timing metrics
+        if hasattr(self.model, 'get_activation_metrics'):
+            metrics.update(self.model.get_activation_metrics())
+
+        # Compute L(C) metric from paper
+        tokens_seen = max(1, self.tokens_processed / self.tokens_per_batch)  # Avoid division by zero
+        metrics['l_c'] = normalized_mse + 0.056 * (tokens_seen ** -0.084)
 
         # Combine losses
         total_loss = main_loss + self.aux_scale * aux_loss
@@ -200,7 +225,6 @@ class SparseAutoencoderTrainer:
         self.model.train()
         segment_metrics: Dict[str, float] = {}
         
-        # Create dataset for this segment
         dataset = ContinuousTokenDataset(
             self.get_batch_fn,
             self.batch_size,
@@ -209,7 +233,6 @@ class SparseAutoencoderTrainer:
         )
         dataloader = DataLoader(dataset, batch_size=None, num_workers=0)
         
-        # Progress bar just for this segment
         pbar = tqdm(
             enumerate(dataloader),
             total=self.steps_per_segment,
@@ -255,7 +278,6 @@ class SparseAutoencoderTrainer:
         self.model.eval()
         eval_metrics: Dict[str, float] = {}
         
-        # Create evaluation dataset
         dataset = ContinuousTokenDataset(
             self.get_batch_fn,
             self.batch_size,
@@ -270,14 +292,49 @@ class SparseAutoencoderTrainer:
                 batch = batch.to(self.device)
                 recon_batch, latents = self.model(batch, update_counts=False)
                 
-                _, metrics = self.compute_loss(batch, recon_batch, latents)
+                # Get dead latents before computing loss
+                dead_latents = self.model.get_dead_latents()
+                _, metrics = self.compute_loss(batch, recon_batch, latents, dead_latents)
                 
                 for k, v in metrics.items():
                     eval_metrics[k] = eval_metrics.get(k, 0) + v
                 
-                pbar.set_postfix({'loss': f"{metrics['total_loss']:.4f}"})
+                pbar.set_postfix({
+                    'mse': f"{metrics['normalized_mse']:.4f}",
+                    'dead': f"{metrics['dead_latents']}",
+                })
         
         # Average metrics
         eval_metrics = {k: v / dataset.steps for k, v in eval_metrics.items()}
         
         return eval_metrics
+    
+    def check_convergence(self, metrics: Dict[str, float], previous_metrics: Optional[Dict[str, float]] = None) -> bool:
+        """Check if model has converged based on paper criteria + dead latent stability."""
+        # Need enough history for stable measurements
+        if len(self.mse_history) < self.window_size:
+            return False
+            
+        if previous_metrics is None:
+            return False
+
+        # Calculate changes in key metrics
+        dead_latent_change = abs(metrics['dead_latents_pct'] - previous_metrics['dead_latents_pct'])
+        l_c_change = abs(metrics['l_c'] - previous_metrics['l_c']) / previous_metrics['l_c']
+        
+        # Check key criteria
+        criteria = [
+            # MSE changes are small
+            metrics.get('relative_mse_change', float('inf')) < 1e-4,
+            
+            # Dead latents are stabilizing (less than 0.5% change)
+            dead_latent_change < 0.5,
+            
+            # L(C) isn't getting worse
+            l_c_change < 0.01,  # 1% change threshold
+            
+            # Normalized MSE is better than mean prediction
+            metrics['normalized_mse'] < 1.0
+        ]
+        
+        return all(criteria)
