@@ -43,6 +43,23 @@ class TopKSparseAutoencoder(nn.Module):
         self.register_buffer('current_step', torch.zeros(1, dtype=torch.long))
         
         self._init_weights(init_scale)
+        
+    # Properties for sae_vis compatability 
+    @property
+    def W_enc(self):
+        return self.encoder.weight
+
+    @property
+    def W_dec(self):
+        return self.encoder.weight.t() if self.tied_weights else self.decoder.weight
+
+    @property
+    def b_enc(self):
+        return self.encoder.bias
+
+    @property
+    def b_dec(self):
+        return self.pre_bias
 
     def _init_weights(self, scale: float = 1.0):
         with torch.no_grad():
@@ -240,3 +257,25 @@ class TopKSparseAutoencoder(nn.Module):
             self.update_activation_counts(sparse_latents)
             
         return output, sparse_latents
+    
+    # Overload state dict for sae_vis
+    def state_dict(self, *args, **kwargs):
+        state_dict = super().state_dict(*args, **kwargs)
+        # Note: For visualization library, W_enc should be (d_in, d_hidden)
+        # where d_hidden should be a multiple of d_in
+        if self.latent_dim % self.input_dim != 0:
+            # Need to flip dimensions to make d_hidden multiple of d_in
+            state_dict.update({
+                'W_enc': self.encoder.weight,  # This will be (latent_dim, input_dim)
+                'W_dec': self.encoder.weight.t() if self.tied_weights else self.decoder.weight,
+                'b_enc': self.encoder.bias,
+                'b_dec': self.pre_bias
+            })
+        else:
+            state_dict.update({
+                'W_enc': self.encoder.weight.t(),  # This will be (input_dim, latent_dim)
+                'W_dec': self.encoder.weight if self.tied_weights else self.decoder.weight.t(),
+                'b_enc': self.encoder.bias,
+                'b_dec': self.pre_bias
+            })
+        return state_dict
