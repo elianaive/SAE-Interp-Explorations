@@ -8,8 +8,9 @@ An implementation of TopK sparse autoencoders for mechanistic interpretability, 
 - Dynamic activation extraction and caching system for memory efficiency 
 - Multi-TopK activation function support
 - Activation refinement through iterative optimization
-- Integration with TransformerLens and Hugging Face models
+- Integration with TransformerLens and HuggingFace models
 - Weights & Biases logging and visualization
+- SAE-VIS visualization support
 
 ## Installation
 
