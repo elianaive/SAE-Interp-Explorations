@@ -1,6 +1,6 @@
 # SAE-Interp-Explorations
 
-An implementation of sparse autoencoders for mechanistic interpretability, replicating key techniques from ["Scaling and Evaluating Sparse Autoencoders"](https://arxiv.org/abs/2406.04093) (Gao et al., 2024).
+An implementation of TopK sparse autoencoders for mechanistic interpretability, replicating key techniques from ["Scaling and Evaluating Sparse Autoencoders"](https://arxiv.org/abs/2406.04093) (Gao et al., 2024).
 
 ## Features
 
