@@ -31,7 +31,7 @@ class SAEVisWrapper:
             'b_dec': self.b_dec
         }
 
-def visualize_features(checkpoint_dir: str, n_features: int = 64, n_samples: int = 2048):
+def visualize_features(checkpoint_dir: str, n_features: int = 2048, n_samples: int = 2048):
     device = get_device()
     
     # Load config and checkpoint
@@ -91,7 +91,7 @@ def visualize_features(checkpoint_dir: str, n_features: int = 64, n_samples: int
     
     # Create visualization config and data
     sae_vis_config = SaeVisConfig(
-        hook_point="blocks.3.hook_resid_pre",  # MLP of block 3
+        hook_point="blocks.3.hook_resid_post",  # Ppst residual of block 3
         features=range(n_features),
         verbose=True,
     )
@@ -119,7 +119,7 @@ def visualize_features(checkpoint_dir: str, n_features: int = 64, n_samples: int
     str_toks_list = [f"{t!r} ({i})" for i, t in enumerate(tokens)]
     print("Tokens:", tokens)
     print("str_toks_list:", str_toks_list)
-    seq_pos = 3
+    seq_pos = 0
     sae_vis_data.save_prompt_centric_vis(
         prompt=prompt,
         filename=prompt_vis_path,
@@ -130,4 +130,4 @@ def visualize_features(checkpoint_dir: str, n_features: int = 64, n_samples: int
     return feature_vis_path, prompt_vis_path
 
 if __name__ == "__main__":
-    feature_vis_path, prompt_vis_path = visualize_features("checkpoints/20241208_015406")
+    feature_vis_path, prompt_vis_path = visualize_features("checkpoints/20241209_054641")

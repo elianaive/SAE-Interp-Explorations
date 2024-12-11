@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from transformers import PreTrainedModel
+from transformer_lens import HookedTransformer
 from typing import Optional, List, Tuple
 import logging
 from torch.utils.data import Dataset, DataLoader
@@ -19,7 +20,7 @@ def print_model_structure(model, indent=0):
 class ActivationExtractor:
     def __init__(
         self,
-        model: PreTrainedModel,
+        model: HookedTransformer,
         layer_num: int,
         device: str = "cuda" if torch.cuda.is_available() else "cpu",
         batch_size: int = 32,
@@ -36,34 +37,11 @@ class ActivationExtractor:
     def _register_hook(self):
         """Register forward hook to capture activations."""
         def hook(module, input, output):
-            if isinstance(output, tuple):
-                # Usually the first element is the hidden states
-                hidden_states = output[0]
-            else:
-                hidden_states = output
-            
-            # Store activation
-            self.activation = hidden_states.detach().cpu()
+            self.activation = output.detach().cpu()
         
-        # Find the target layer based on model architecture
-        if hasattr(self.model, 'transformer'):
-            print_model_structure(self.model.transformer)
-            # For GPT-Neo style models, we want to capture the output of the MLP
-            target_layer = self.model.transformer.h[self.layer_num].mlp
-        elif hasattr(self.model, 'model'):
-            if hasattr(self.model.model, 'layers'):
-                target_layer = self.model.model.layers[self.layer_num].mlp
-            else:
-                # Print model structure to help debug
-                logger.info(f"Model structure: {self.model}")
-                raise ValueError("Unsupported model architecture")
-        else:
-            # Print model structure to help debug
-            logger.info(f"Model structure: {self.model}")
-            raise ValueError("Unsupported model architecture")
-        
-        # Register hook after MLP
-        target_layer.register_forward_hook(hook)
+        # Use HookedTransformer's hook point
+        hook_point = f"blocks.{self.layer_num}.hook_resid_post"
+        self.model.add_hook(hook_point, hook, is_permanent=False)
     
     @torch.no_grad()
     def extract_activations(

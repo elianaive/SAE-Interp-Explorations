@@ -4,6 +4,7 @@ from pathlib import Path
 import yaml
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformer_lens import HookedTransformer
 from datasets import load_dataset
 import wandb
 import logging
@@ -55,12 +56,12 @@ def main():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
     logger.info("Loading model and tokenizer...")
-    model = AutoModelForCausalLM.from_pretrained(config['model']['name'])
+    model = HookedTransformer.from_pretrained(config['model']['name'])
     tokenizer = AutoTokenizer.from_pretrained(config['model']['name'])
     
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
-        model.config.pad_token_id = model.config.eos_token_id
+    #if tokenizer.pad_token is None:
+        #tokenizer.pad_token = tokenizer.eos_token
+        #model.cfg["pad_token_id"] = model.cfg["eos_token_id"]
     
     logger.info("Loading dataset...")
     train_size = config['data']['train_size']

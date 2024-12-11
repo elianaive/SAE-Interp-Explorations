@@ -1,6 +1,7 @@
 import torch
 from torch.utils.data import Dataset, DataLoader, IterableDataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformer_lens import HookedTransformer
 from typing import Optional, Iterator, Dict
 import h5py
 import logging
@@ -41,7 +42,7 @@ class DynamicActivationExtractor:
     """Extracts activations on-the-fly with caching capabilities."""
     def __init__(
         self,
-        model: AutoModelForCausalLM,
+        model: HookedTransformer,
         layer_num: int,
         cache_dir: str,
         chunks_to_keep: int = 2,
@@ -64,25 +65,13 @@ class DynamicActivationExtractor:
         
     def _register_hook(self):
         """Register forward hook to capture activations."""
-        def hook(module, input, output):
-            if isinstance(output, tuple):
-                hidden_states = output[0]
-            else:
-                hidden_states = output
-            self.activation = hidden_states.detach().cpu()
+        def hook(module_output, hook):
+            """Capture the activation from the hook point."""
+            self.activation = module_output.detach().cpu()
         
-        # Find and register hook on target layer
-        if hasattr(self.model, 'transformer'):
-            target_layer = self.model.transformer.h[self.layer_num]
-        elif hasattr(self.model, 'model'):
-            if hasattr(self.model.model, 'layers'):
-                target_layer = self.model.model.layers[self.layer_num]
-            else:
-                raise ValueError("Unsupported model architecture")
-        else:
-            raise ValueError("Unsupported model architecture")
-        
-        target_layer.register_forward_hook(hook)
+        # Use HookedTransformer's hook point
+        hook_point = f"blocks.{self.layer_num}.hook_resid_post"
+        self.model.add_hook(hook_point, hook, is_permanent=False)
 
 class DynamicActivationDataset(IterableDataset):
     """Dataset that generates and manages activations dynamically."""
@@ -134,7 +123,8 @@ class DynamicActivationDataset(IterableDataset):
                             for k, v in batch_dict.items()}
                 
                 # Forward pass
-                self.extractor.model(**batch_dict)
+                #self.extractor.model(**batch_dict)
+                self.extractor.model(batch_dict['input_ids'])
                 
                 # Get and clear activation
                 activations = self.extractor.activation
@@ -151,6 +141,7 @@ class DynamicActivationDataset(IterableDataset):
                 
                 # Store activations
                 current_batch_size = activations_np.shape[0]
+                #print(activations_np)
                 h5_dataset[data_idx:data_idx + current_batch_size] = activations_np
                 data_idx += current_batch_size
         
